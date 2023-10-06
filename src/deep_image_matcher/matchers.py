@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # The ImageMatcherBase class should contain all the common methods and attributes for all the matchers (tile suddivision, image downsampling/upsampling), geometric verification etc.
 # The specific matchers MUST contain at least the `_match_images` method, which takes in two images as Numpy arrays, and returns the matches between keypoints and descriptors in those images. It doesn not care if the images are tiles or full-res images, as the tiling is handled by the ImageMatcherBase class that calls the `_match_images` method for each tile pair or for the full images depending on the tile selection method.
 
-# TODO: divide the matcher in two classes: one for the feature extractor and one for the matcher.
+# TODO: divide the matching in two steps: one for the feature extractor and one for the matcher.
 # TODO: allows the user to provide the features (keypoints, descriptors and scores) as input to match method when using SuperGlue/LightGlue (e.g., for tracking features in a new image of a sequence)
 # TODO: move all the configuration parameters to the __init__ method of the ImageMatcherBase class. The match method should only take the images as input (and optionally the already extracted features).
 # TODO: add integration with KORNIA library for using all the extractors and mathers.
