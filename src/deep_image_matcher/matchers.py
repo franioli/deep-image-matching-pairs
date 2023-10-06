@@ -34,11 +34,11 @@ logger = logging.getLogger(__name__)
 
 
 class LightGlueMatcher(ImageMatcherBase):
-    def __init__(self, opt: dict = {}) -> None:
+    def __init__(self, **config) -> None:
         """Initializes a LightGlueMatcher with Kornia"""
 
-        self._localfeatures = opt.get("features", "superpoint")
-        super().__init__(opt)
+        self._localfeatures = config.get("features", "superpoint")
+        super().__init__(**config)
 
     # Override _frame2tensor method to shift channel first as batch dimension
     def _frame2tensor(self, image: np.ndarray, device: str = "cpu") -> torch.Tensor:

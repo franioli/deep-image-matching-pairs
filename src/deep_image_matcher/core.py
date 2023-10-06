@@ -10,7 +10,6 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from easydict import EasyDict as edict
 
 from .consts import GeometricVerification, Quality, TileSelection
 from .geometric_verification import geometric_verification
@@ -39,7 +38,7 @@ def check_dict_keys(dict: dict, keys: List[str]):
 
 
 class ImageMatcherBase:
-    def __init__(self, opt: dict = {}) -> None:
+    def __init__(self, **config) -> None:
         """
         Base class for matchers. It defines the basic interface for matchers and basic functionalities that are shared among all matchers, in particular the `match` method. It must be subclassed to implement a new matcher.
 
@@ -49,11 +48,22 @@ class ImageMatcherBase:
         Raises:
             TypeError: If `opt` is not a dictionary.
         """
-        if not isinstance(opt, dict):
+        if not isinstance(config, dict):
             raise TypeError("opt must be a dictionary")
-        self._opt = edict(opt)
+        self._opt = config
+
+        # Get main config parameters
+        self._quality = config.get("quality", Quality.HIGH)
+        self._tiling = config.get("tile_selection", TileSelection.NONE)
+        self._gv = config.get(
+            "geometric_verification", GeometricVerification.PYDEGENSAC
+        )
+
+        # Get device
         self._device = (
-            "cuda" if torch.cuda.is_available() and not opt.get("force_cpu") else "cpu"
+            "cuda"
+            if torch.cuda.is_available() and not config.get("force_cpu")
+            else "cpu"
         )
         logger.info(f"Running inference on device {self._device}")
 
@@ -114,8 +124,8 @@ class ImageMatcherBase:
         self,
         image0: np.ndarray,
         image1: np.ndarray,
-        quality: Quality = Quality.HIGH,
-        tile_selection: TileSelection = TileSelection.NONE,
+        # quality: Quality = Quality.HIGH,
+        # tile_selection: TileSelection = TileSelection.NONE,
         **config,
     ) -> bool:
         """
@@ -134,12 +144,16 @@ class ImageMatcherBase:
         """
         self.timer = AverageTimer()
 
-        # Get config parameters
-        gv_method = config.get(
-            "geometric_verification", GeometricVerification.PYDEGENSAC
-        )
-        threshold = config.get("threshold", 1)
-        confidence = config.get("confidence", 0.9999)
+        # Get qualtiy and tile selection parameters
+        quality = config.get("quality", self._quality)
+        tile_selection = config.get("tile_selection", self._tiling)
+
+        # Get geometric verification config parameters
+        gv_method = config.get("geometric_verification", self._gv)
+        gv_threshold = config.get("threshold", 1)
+        config.get("confidence", 0.9999)
+
+        # Get visualization parameters
         self._do_viz = config.get("do_viz_matches", False)
         self._fast_viz = config.get("fast_viz", True)
 
@@ -190,8 +204,8 @@ class ImageMatcherBase:
                 self._mkpts0,
                 self._mkpts1,
                 method=gv_method,
-                confidence=confidence,
-                threshold=threshold,
+                confidence=gv_threshold,
+                threshold=gv_threshold,
             )
             self._F = F
             self._filter_matches_by_mask(inlMask)
