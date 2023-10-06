@@ -6,7 +6,6 @@ from typing import Tuple
 import cv2
 import kornia as K
 import kornia.feature as KF
-import matplotlib
 import matplotlib.cm as cm
 import numpy as np
 import torch
@@ -21,8 +20,6 @@ from .tiling import Tiler
 from .thirdparty.SuperGlue.models.matching import Matching
 from .thirdparty.SuperGlue.models.utils import make_matching_plot
 
-matplotlib.use("TkAgg")
-
 logger = logging.getLogger(__name__)
 
 # NOTE: the ImageMatcherBase class should be used as a base class for all the image matchers.
@@ -34,6 +31,157 @@ logger = logging.getLogger(__name__)
 # TODO: move all the configuration parameters to the __init__ method of the ImageMatcherBase class. The match method should only take the images as input (and optionally the already extracted features).
 # TODO: add integration with KORNIA library for using all the extractors and mathers.
 # TODO: add visualization functions for the matches (take the functions from the visualization module of ICEpy4d). Currentely, the visualization methods may not work!
+
+
+class LightGlueMatcher(ImageMatcherBase):
+    def __init__(self, opt: dict = {}) -> None:
+        """Initializes a LightGlueMatcher with Kornia"""
+
+        self._localfeatures = opt.get("features", "superpoint")
+        super().__init__(opt)
+
+    # Override _frame2tensor method to shift channel first as batch dimension
+    def _frame2tensor(self, image: np.ndarray, device: str = "cpu") -> torch.Tensor:
+        """Normalize the image tensor and reorder the dimensions."""
+        if image.ndim == 3:
+            image = image.transpose((2, 0, 1))  # HxWxC to CxHxW
+        elif image.ndim == 2:
+            image = image[None]  # add channel axis
+        else:
+            raise ValueError(f"Not an image: {image.shape}")
+        return torch.tensor(image / 255.0, dtype=torch.float).to(device)
+
+    def _rbd(self, data: dict) -> dict:
+        """Remove batch dimension from elements in data"""
+        return {
+            k: v[0] if isinstance(v, (torch.Tensor, np.ndarray, list)) else v
+            for k, v in data.items()
+        }
+
+    def _match_images(
+        self,
+        image0: np.ndarray,
+        image1: np.ndarray,
+        **config,
+    ) -> Tuple[FeaturesBase, FeaturesBase, np.ndarray, np.ndarray]:
+        """Matches keypoints and descriptors in two given images (no matter if they are tiles or full-res images) using the SuperGlue algorithm.
+
+        This method takes in two images as Numpy arrays, and returns the matches between keypoints
+        and descriptors in those images using the SuperGlue algorithm.
+
+        Args:
+            image0 (np.ndarray): the first image to match, as Numpy array
+            image1 (np.ndarray): the second image to match, as Numpy array
+
+        Returns:
+            Tuple[FeaturesBase, FeaturesBase, np.ndarray]: a tuple containing the features of the first image, the features of the second image, and the matches between them
+        """
+
+        from .thirdparty.LightGlue.lightglue import LightGlue, SuperPoint
+
+        max_keypoints = config.get("max_keypoints", 10240)
+        resize = config.get("resize", None)
+
+        image0_ = self._frame2tensor(image0, self._device)
+        image1_ = self._frame2tensor(image1, self._device)
+
+        device = torch.device(self._device if torch.cuda.is_available() else "cpu")
+
+        # load the extractor
+        self.extractor = SuperPoint(max_num_keypoints=max_keypoints).eval().to(device)
+        # load the matcher
+        self.matcher = LightGlue(features=self._localfeatures).eval().to(device)
+
+        with torch.inference_mode():
+            # extract the features
+            try:
+                feats0 = self.extractor.extract(image0_, resize=resize)
+                feats1 = self.extractor.extract(image1_, resize=resize)
+            except:
+                feats0 = self.extractor.extract(image0_)
+                feats1 = self.extractor.extract(image1_)
+
+            # match the features
+            matches01 = self.matcher({"image0": feats0, "image1": feats1})
+
+            # remove batch dimension
+            feats0, feats1, matches01 = [
+                self._rbd(x) for x in [feats0, feats1, matches01]
+            ]
+
+        feats0 = {k: v.cpu().numpy() for k, v in feats0.items()}
+        feats1 = {k: v.cpu().numpy() for k, v in feats1.items()}
+        matches01 = {
+            k: v.cpu().numpy()
+            for k, v in matches01.items()
+            if isinstance(v, torch.Tensor)
+        }
+
+        # Create FeaturesBase objects and matching array
+        features0 = FeaturesBase(
+            keypoints=feats0["keypoints"],
+            descriptors=feats0["descriptors"].T,
+            scores=feats0["keypoint_scores"],
+        )
+        features1 = FeaturesBase(
+            keypoints=feats1["keypoints"],
+            descriptors=feats1["descriptors"].T,
+            scores=feats1["keypoint_scores"],
+        )
+        matches0 = matches01["matches0"]
+        mconf = matches01["scores"]
+
+        # # For debugging
+        # def print_shapes_in_dict(dic: dict):
+        #     for k, v in dic.items():
+        #         shape = v.shape if isinstance(v, np.ndarray) else None
+        #         print(f"{k} shape: {shape}")
+
+        # def print_features_shape(features: FeaturesBase):
+        #     print(f"keypoints: {features.keypoints.shape}")
+        #     print(f"descriptors: {features.descriptors.shape}")
+        #     print(f"scores: {features.scores.shape}")
+
+        return features0, features1, matches0, mconf
+
+    def _store_features(
+        self,
+        features0: FeaturesBase,
+        features1: FeaturesBase,
+        matches0: np.ndarray,
+        force_overwrite: bool = True,
+    ) -> bool:
+        """Stores keypoints, descriptors and scores of the matches in the object's members."""
+
+        assert isinstance(
+            features0, FeaturesBase
+        ), "features0 must be a FeaturesBase object"
+        assert isinstance(
+            features1, FeaturesBase
+        ), "features1 must be a FeaturesBase object"
+        assert hasattr(features0, "keypoints"), "No keypoints found in features0"
+        assert hasattr(features1, "keypoints"), "No keypoints found in features1"
+
+        if self._mkpts0 is not None and self._mkpts1 is not None:
+            if force_overwrite is False:
+                logger.warning(
+                    "Matches already stored. Not overwriting them. Use force_overwrite=True to force overwrite them."
+                )
+                return False
+            else:
+                logger.warning("Matches already stored. Overwrite them")
+
+        self._mkpts0 = features0.keypoints
+        self._mkpts1 = features1.keypoints
+        if features0.descriptors is not None:
+            self._descriptors0 = features0.descriptors
+            self._descriptors1 = features1.descriptors
+        if features0.scores is not None:
+            self._scores0 = features0.scores
+            self._scores1 = features1.scores
+
+        return True
+
 
 class SuperGlueMatcher(ImageMatcherBase):
     def __init__(self, opt: dict) -> None:
@@ -409,158 +557,8 @@ class LOFTRMatcher(ImageMatcherBase):
         return features0, features1, matches0, conf_full
 
 
-class LightGlueMatcher(ImageMatcherBase):
-    def __init__(self, opt: dict = {}) -> None:
-        """Initializes a LightGlueMatcher with Kornia"""
-
-        self._localfeatures = opt.get("features", "superpoint")
-        super().__init__(opt)
-
-    # Override _frame2tensor method to shift channel first as batch dimension
-    def _frame2tensor(self, image: np.ndarray, device: str = "cpu") -> torch.Tensor:
-        """Normalize the image tensor and reorder the dimensions."""
-        if image.ndim == 3:
-            image = image.transpose((2, 0, 1))  # HxWxC to CxHxW
-        elif image.ndim == 2:
-            image = image[None]  # add channel axis
-        else:
-            raise ValueError(f"Not an image: {image.shape}")
-        return torch.tensor(image / 255.0, dtype=torch.float).to(device)
-
-    def _rbd(self, data: dict) -> dict:
-        """Remove batch dimension from elements in data"""
-        return {
-            k: v[0] if isinstance(v, (torch.Tensor, np.ndarray, list)) else v
-            for k, v in data.items()
-        }
-
-    def _match_images(
-        self,
-        image0: np.ndarray,
-        image1: np.ndarray,
-        **config,
-    ) -> Tuple[FeaturesBase, FeaturesBase, np.ndarray, np.ndarray]:
-        """Matches keypoints and descriptors in two given images (no matter if they are tiles or full-res images) using the SuperGlue algorithm.
-
-        This method takes in two images as Numpy arrays, and returns the matches between keypoints
-        and descriptors in those images using the SuperGlue algorithm.
-
-        Args:
-            image0 (np.ndarray): the first image to match, as Numpy array
-            image1 (np.ndarray): the second image to match, as Numpy array
-
-        Returns:
-            Tuple[FeaturesBase, FeaturesBase, np.ndarray]: a tuple containing the features of the first image, the features of the second image, and the matches between them
-        """
-
-        from .thirdparty.LightGlue.lightglue import LightGlue, SuperPoint
-
-        max_keypoints = config.get("max_keypoints", 10240)
-        resize = config.get("resize", None)
-
-        image0_ = self._frame2tensor(image0, self._device)
-        image1_ = self._frame2tensor(image1, self._device)
-
-        device = torch.device(self._device if torch.cuda.is_available() else "cpu")
-
-        # load the extractor
-        self.extractor = SuperPoint(max_num_keypoints=max_keypoints).eval().to(device)
-        # load the matcher
-        self.matcher = LightGlue(features=self._localfeatures).eval().to(device)
-
-        with torch.inference_mode():
-            # extract the features
-            try:
-                feats0 = self.extractor.extract(image0_, resize=resize)
-                feats1 = self.extractor.extract(image1_, resize=resize)
-            except:
-                feats0 = self.extractor.extract(image0_)
-                feats1 = self.extractor.extract(image1_)
-
-            # match the features
-            matches01 = self.matcher({"image0": feats0, "image1": feats1})
-
-            # remove batch dimension
-            feats0, feats1, matches01 = [
-                self._rbd(x) for x in [feats0, feats1, matches01]
-            ]
-
-        feats0 = {k: v.cpu().numpy() for k, v in feats0.items()}
-        feats1 = {k: v.cpu().numpy() for k, v in feats1.items()}
-        matches01 = {
-            k: v.cpu().numpy()
-            for k, v in matches01.items()
-            if isinstance(v, torch.Tensor)
-        }
-
-        # Create FeaturesBase objects and matching array
-        features0 = FeaturesBase(
-            keypoints=feats0["keypoints"],
-            descriptors=feats0["descriptors"].T,
-            scores=feats0["keypoint_scores"],
-        )
-        features1 = FeaturesBase(
-            keypoints=feats1["keypoints"],
-            descriptors=feats1["descriptors"].T,
-            scores=feats1["keypoint_scores"],
-        )
-        matches0 = matches01["matches0"]
-        mconf = matches01["scores"]
-
-        # # For debugging
-        # def print_shapes_in_dict(dic: dict):
-        #     for k, v in dic.items():
-        #         shape = v.shape if isinstance(v, np.ndarray) else None
-        #         print(f"{k} shape: {shape}")
-
-        # def print_features_shape(features: FeaturesBase):
-        #     print(f"keypoints: {features.keypoints.shape}")
-        #     print(f"descriptors: {features.descriptors.shape}")
-        #     print(f"scores: {features.scores.shape}")
-
-        return features0, features1, matches0, mconf
-
-    def _store_features(
-        self,
-        features0: FeaturesBase,
-        features1: FeaturesBase,
-        matches0: np.ndarray,
-        force_overwrite: bool = True,
-    ) -> bool:
-        """Stores keypoints, descriptors and scores of the matches in the object's members."""
-
-        assert isinstance(
-            features0, FeaturesBase
-        ), "features0 must be a FeaturesBase object"
-        assert isinstance(
-            features1, FeaturesBase
-        ), "features1 must be a FeaturesBase object"
-        assert hasattr(features0, "keypoints"), "No keypoints found in features0"
-        assert hasattr(features1, "keypoints"), "No keypoints found in features1"
-
-        if self._mkpts0 is not None and self._mkpts1 is not None:
-            if force_overwrite is False:
-                logger.warning(
-                    "Matches already stored. Not overwriting them. Use force_overwrite=True to force overwrite them."
-                )
-                return False
-            else:
-                logger.warning("Matches already stored. Overwrite them")
-
-        self._mkpts0 = features0.keypoints
-        self._mkpts1 = features1.keypoints
-        if features0.descriptors is not None:
-            self._descriptors0 = features0.descriptors
-            self._descriptors1 = features1.descriptors
-        if features0.scores is not None:
-            self._scores0 = features0.scores
-            self._scores1 = features1.scores
-
-        return True
-
-
 if __name__ == "__main__":
-    from icepy4d.utils.logger import setup_logger
+    from .logger import setup_logger
 
     setup_logger()
 

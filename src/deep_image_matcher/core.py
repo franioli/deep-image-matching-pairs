@@ -7,7 +7,6 @@ import importlib
 from dataclasses import dataclass
 
 import cv2
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -17,8 +16,6 @@ from .consts import GeometricVerification, Quality, TileSelection
 from .geometric_verification import geometric_verification
 from .tiling import Tiler
 from .timer import AverageTimer, timeit
-
-matplotlib.use("TkAgg")
 
 logger = logging.getLogger(__name__)
 

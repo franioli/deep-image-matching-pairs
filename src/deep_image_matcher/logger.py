@@ -21,43 +21,21 @@ import functools
 import warnings
 
 
-def deprecated(func):
-    """This is a decorator which can be used to mark functions
-    as deprecated. It will result in a warning being emitted
-    and a logging warning when the function is used."""
-
-    @functools.wraps(func)
-    def new_func(*args, **kwargs):
-        message = kwargs.get("message", None)
-        if message is None:
-            message = f"Depracated {func.__name__}."
-        warnings.simplefilter("always", DeprecationWarning)  # turn off filter
-        msg = f"Call to deprecated function {func.__name__}."
-        warnings.warn(
-            msg,
-            category=DeprecationWarning,
-            stacklevel=2,
-        )
-        logging.warning(msg)
-        warnings.simplefilter("default", DeprecationWarning)  # reset filter
-        return func(*args, **kwargs)
-
-    return new_func
-
-
 def setup_logger(
-    log_folder: str = "logs",
-    log_base_name: str = "log",
     console_log_level: str = "info",
+    log_folder: str = None,
     logfile_level: str = "info",
-):
-    log_folder = Path(log_folder)
-    log_folder.mkdir(exist_ok=True, parents=True)
-
-    today = date.today()
-    now = datetime.now()
-    current_date = f"{today.strftime('%Y_%m_%d')}_{now.strftime('%H:%M')}"
-    log_file = log_folder / f"{log_base_name}_{current_date}.log"
+    logfile_basename: str = "log",
+) -> logging.Logger:
+    if log_folder is not None:
+        log_folder = Path(log_folder)
+        log_folder.mkdir(exist_ok=True, parents=True)
+        today = date.today()
+        now = datetime.now()
+        current_date = f"{today.strftime('%Y_%m_%d')}_{now.strftime('%H:%M')}"
+        log_file = log_folder / f"{logfile_basename}_{current_date}.log"
+    else:
+        log_file = None
 
     # log_line_template = "%(color_on)s[%(created)d] [%(threadName)s] [%(levelname)-8s] %(message)s%(color_off)s"
 
@@ -81,10 +59,36 @@ def setup_logger(
         print("Failed to setup logging, aborting.")
         raise RuntimeError
 
+    return get_logger()
+
 
 def get_logger(name: str = "__name__"):
     logger = logging.getLogger(name)
     return logger
+
+
+def deprecated(func):
+    """This is a decorator which can be used to mark functions
+    as deprecated. It will result in a warning being emitted
+    and a logging warning when the function is used."""
+
+    @functools.wraps(func)
+    def new_func(*args, **kwargs):
+        message = kwargs.get("message", None)
+        if message is None:
+            message = f"Depracated {func.__name__}."
+        warnings.simplefilter("always", DeprecationWarning)  # turn off filter
+        msg = f"Call to deprecated function {func.__name__}."
+        warnings.warn(
+            msg,
+            category=DeprecationWarning,
+            stacklevel=2,
+        )
+        logging.warning(msg)
+        warnings.simplefilter("default", DeprecationWarning)  # reset filter
+        return func(*args, **kwargs)
+
+    return new_func
 
 
 # Logging formatter supporting colorized output
@@ -164,27 +168,29 @@ def configure_logging(
     logger.addHandler(console_handler)
 
     # Create log file handler
-    try:
-        logfile_handler = logging.FileHandler(logfile_file)
-    except Exception as exception:
-        print("Failed to set up log file: %s" % str(exception))
-        return False
+    if logfile_file is not None:
+        try:
+            logfile_handler = logging.FileHandler(logfile_file)
+        except Exception as exception:
+            print("Failed to set up log file: %s" % str(exception))
+            return False
 
-    # Set log file log level
-    try:
-        logfile_handler.setLevel(
-            logfile_log_level.upper()
-        )  # only accepts uppercase level names
-    except:
-        print(
-            "Failed to set log file log level: invalid level: '%s'" % logfile_log_level
-        )
-        return False
+        # Set log file log level
+        try:
+            logfile_handler.setLevel(
+                logfile_log_level.upper()
+            )  # only accepts uppercase level names
+        except:
+            print(
+                "Failed to set log file log level: invalid level: '%s'"
+                % logfile_log_level
+            )
+            return False
 
-    # Create and set formatter, add log file handler to logger
-    logfile_formatter = LogFormatter(fmt=log_line_template, color=logfile_log_color)
-    logfile_handler.setFormatter(logfile_formatter)
-    logger.addHandler(logfile_handler)
+        # Create and set formatter, add log file handler to logger
+        logfile_formatter = LogFormatter(fmt=log_line_template, color=logfile_log_color)
+        logfile_handler.setFormatter(logfile_formatter)
+        logger.addHandler(logfile_handler)
 
     # Success
     return True
