@@ -7,7 +7,7 @@ Clone the repository and go to the project directory
 
 ```bash
 git clone https://github.com/franioli/deep-image-matching
-cd `deep-image-matching`
+cd deep-image-matching
 ```
 
 Create an anaconda environment and upgrade pip
