@@ -351,25 +351,6 @@ class ImageMatcherBase:
             tile0 = self._tiler.extract_patch(image0, lim0)
             tile1 = self._tiler.extract_patch(image1, lim1)
 
-            # Run matching on a pair of tiles
-            # tensor0 = self._frame2tensor(tile0, self._device)
-            # tensor1 = self._frame2tensor(tile1, self._device)
-            # with torch.inference_mode():
-            #     pred_tensor = self.matcher({"image0": tensor0, "image1": tensor1})
-            # pred = {k: v[0].cpu().numpy() for k, v in pred_tensor.items()}
-
-            # Get matches, descriptors and scores
-            # kpts0, kpts1 = pred["keypoints0"], pred["keypoints1"]
-            # descriptors0, descriptors1 = (
-            #     pred["descriptors0"],
-            #     pred["descriptors1"],
-            # )
-            # scores0, scores1 = pred["scores0"], pred["scores1"]
-            # matches0, _ = (
-            #     pred["matches0"],
-            #     pred["matches1"],
-            # )
-            # conf = pred["matching_scores0"]
             features0, features1, matches0, conf = self._match_images(
                 tile0, tile1, **config
             )

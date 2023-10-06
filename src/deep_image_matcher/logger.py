@@ -30,7 +30,7 @@ def deprecated(func):
     def new_func(*args, **kwargs):
         message = kwargs.get("message", None)
         if message is None:
-            message = f"aaaaaaaaaaaa {func.__name__}."
+            message = f"Depracated {func.__name__}."
         warnings.simplefilter("always", DeprecationWarning)  # turn off filter
         msg = f"Call to deprecated function {func.__name__}."
         warnings.warn(

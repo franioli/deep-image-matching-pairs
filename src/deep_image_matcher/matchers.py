@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # TODO: allows the user to provide the features (keypoints, descriptors and scores) as input to match method when using SuperGlue/LightGlue (e.g., for tracking features in a new image of a sequence)
 # TODO: move all the configuration parameters to the __init__ method of the ImageMatcherBase class. The match method should only take the images as input (and optionally the already extracted features).
 # TODO: add integration with KORNIA library for using all the extractors and mathers.
-
+# TODO: add visualization functions for the matches (take the functions from the visualization module of ICEpy4d). Currentely, the visualization methods may not work!
 
 class SuperGlueMatcher(ImageMatcherBase):
     def __init__(self, opt: dict) -> None:
