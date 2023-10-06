@@ -1,5 +1,5 @@
-site_name: package_name
-repo_url: https://github.com/franioli/package_name/
+site_name: deep_image_matcher
+repo_url: https://github.com/franioli/deep-image-matching/
 site_author: Francesco Ioli
 
 theme:
