@@ -6,7 +6,7 @@
 Clone the repository and go to the project directory
 
 ```bash
-git clone [github url]
+git clone https://github.com/franioli/deep-image-matching
 cd `deep-image-matching`
 ```
 
