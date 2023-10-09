@@ -37,6 +37,131 @@ def check_dict_keys(dict: dict, keys: List[str]):
         )
 
 
+def viz_matches_mpl(
+    image0: np.ndarray,
+    image1: np.ndarray,
+    kpts0: np.ndarray,
+    kpts1: np.ndarray,
+    save_path: str = None,
+    hide_fig: bool = True,
+    **config,
+) -> None:
+    if hide_fig:
+        matplotlib = importlib.import_module("matplotlib")
+        matplotlib.use("Agg")  # Use the Agg backend for rendering
+
+    # Get config
+    colors = config.get("c", config.get("color", ["r", "r"]))
+    if isinstance(colors, str):
+        colors = [colors, colors]
+    s = config.get("s", 2)
+    figsize = config.get("figsize", (20, 8))
+
+    fig, ax = plt.subplots(1, 2, figsize=figsize)
+    ax[0].imshow(cv2.cvtColor(image0, cv2.COLOR_BGR2RGB))
+    ax[0].scatter(kpts0[:, 0], kpts0[:, 1], s=s, c=colors[0])
+    ax[0].axis("equal")
+    ax[1].imshow(cv2.cvtColor(image1, cv2.COLOR_BGR2RGB))
+    ax[1].scatter(kpts1[:, 0], kpts1[:, 1], s=s, c=colors[1])
+    ax[1].axis("equal")
+    fig.tight_layout()
+    if save_path is not None:
+        fig.savefig(save_path)
+    if hide_fig is False:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def viz_matches_cv2(
+    image0: np.ndarray,
+    image1: np.ndarray,
+    pts0: np.ndarray,
+    pts1: np.ndarray,
+    save_path: str = None,
+    pts_col: Tuple[int] = (0, 0, 255),
+    point_size: int = 1,
+    line_col: Tuple[int] = (0, 255, 0),
+    line_thickness: int = 1,
+    margin: int = 10,
+    autoresize: bool = True,
+    max_long_edge: int = 2000,
+    jpg_quality: int = 80,
+) -> np.ndarray:
+    """Plot matching points between two images using OpenCV.
+
+    Args:
+        image0: The first image.
+        image1: The second image.
+        pts0: List of 2D points in the first image.
+        pts1: List of 2D points in the second image.
+        pts_col: RGB color of the points.
+        point_size: Size of the circles representing the points.
+        line_col: RGB color of the matching lines.
+        line_thickness: Thickness of the lines connecting the points.
+        path: Path to save the output image.
+        margin: Margin between the two images in the output.
+
+    Returns:
+        np.ndarrya: The output image.
+    """
+    if image0.ndim > 2:
+        image0 = cv2.cvtColor(image0, cv2.COLOR_BGR2GRAY)
+    if image1.ndim > 2:
+        image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
+
+    if autoresize:
+        H0, W0 = image0.shape[:2]
+        H1, W1 = image1.shape[:2]
+        max_size = max(H0, W0, H1, W1)
+        scale_factor = max_long_edge / max_size
+        new_W0, new_H0 = int(W0 * scale_factor), int(H0 * scale_factor)
+        new_W1, new_H1 = int(W1 * scale_factor), int(H1 * scale_factor)
+
+        image0 = cv2.resize(image0, (new_W0, new_H0))
+        image1 = cv2.resize(image1, (new_W1, new_H1))
+
+        # Scale the keypoints accordingly
+        pts0 = (pts0 * scale_factor).astype(int)
+        pts1 = (pts1 * scale_factor).astype(int)
+
+    H0, W0 = image0.shape
+    H1, W1 = image1.shape
+    H, W = max(H0, H1), W0 + W1 + margin
+
+    out = 255 * np.ones((H, W), np.uint8)
+    out[:H0, :W0] = image0
+    out[:H1, W0 + margin :] = image1
+    out = np.stack([out] * 3, -1)
+
+    mkpts0, mkpts1 = np.round(pts0).astype(int), np.round(pts1).astype(int)
+    for (x0, y0), (x1, y1) in zip(mkpts0, mkpts1):
+        if line_thickness > -1:
+            # draw lines between matching keypoints
+            cv2.line(
+                out,
+                (x0, y0),
+                (x1 + margin + W0, y1),
+                color=line_col,
+                thickness=line_thickness,
+                lineType=cv2.LINE_AA,
+            )
+        # display line end-points as circles
+        cv2.circle(out, (x0, y0), point_size, pts_col, -1, lineType=cv2.LINE_AA)
+        cv2.circle(
+            out,
+            (x1 + margin + W0, y1),
+            point_size,
+            pts_col,
+            -1,
+            lineType=cv2.LINE_AA,
+        )
+    if save_path is not None:
+        cv2.imwrite(str(save_path), out, [cv2.IMWRITE_JPEG_QUALITY, int(jpg_quality)])
+
+    return out
+
+
 class ImageMatcherBase:
     def __init__(self, **config) -> None:
         """
@@ -50,7 +175,6 @@ class ImageMatcherBase:
         """
         if not isinstance(config, dict):
             raise TypeError("opt must be a dictionary")
-        self._opt = config
 
         # Get main config parameters
         self._quality = config.get("quality", Quality.HIGH)
@@ -58,6 +182,7 @@ class ImageMatcherBase:
         self._gv = config.get(
             "geometric_verification", GeometricVerification.PYDEGENSAC
         )
+        self._config = config
 
         # Get device
         self._device = (
@@ -142,7 +267,13 @@ class ImageMatcherBase:
             A boolean indicating the success of the matching process.
 
         """
+        assert isinstance(image0, np.ndarray), "image0 must be a NumPy array"
+        assert isinstance(image1, np.ndarray), "image1 must be a NumPy array"
+
         self.timer = AverageTimer()
+
+        # Get config from class members or from user input
+        config = {**self._config, **config}
 
         # Get qualtiy and tile selection parameters
         quality = config.get("quality", self._quality)
@@ -154,8 +285,10 @@ class ImageMatcherBase:
         config.get("confidence", 0.9999)
 
         # Get visualization parameters
-        self._do_viz = config.get("do_viz_matches", False)
-        self._fast_viz = config.get("fast_viz", True)
+        do_viz = config.get("do_viz", False)
+        fast_viz = config.get("fast_viz", True)
+        config.get("interactive_viz", True)
+        hide_matching_track = self._config.get("hide_matching_track", False)
 
         # Define saving directory
         save_dir = config.get("save_dir", None)
@@ -164,6 +297,15 @@ class ImageMatcherBase:
             self._save_dir.mkdir(parents=True, exist_ok=True)
         else:
             self._save_dir = None
+
+        # Check input parameters
+        assert isinstance(quality, Quality), "quality must be a Quality enum"
+        assert isinstance(
+            tile_selection, TileSelection
+        ), "tile_selection must be a TileSelection enum"
+        assert isinstance(
+            gv_method, GeometricVerification
+        ), "geometric_verification must be a GeometricVerification enum"
 
         # Resize images if needed
         image0_, image1_ = self._resize_images(quality, image0, image1)
@@ -178,7 +320,7 @@ class ImageMatcherBase:
         else:
             logger.info("Matching by tiles...")
             features0, features1, matches0, mconf = self._match_by_tile(
-                image0_, image1_, tile_selection, **config
+                image0_, image1_, **config
             )
 
         # Retrieve original image coordinates if matching was performed on up/down-sampled images
@@ -214,37 +356,75 @@ class ImageMatcherBase:
             logger.info("Geometric verification done.")
             self.timer.update("geometric_verification")
 
-        if self._do_viz is True:
-            if self._fast_viz:
-                assert (
-                    self._save_dir is not None
-                ), "save_dir must be specified for fast_viz"
-                self.viz_matches_cv2(
-                    image0,
-                    image1,
-                    self._mkpts0,
-                    self._mkpts1,
-                    str(self._save_dir / "matches.png"),
-                )
-            else:
-                if self._save_dir is not None:
-                    self.viz_matches_mpl(
-                        image0,
-                        image1,
-                        self._mkpts0,
-                        self._mkpts1,
-                        self._save_dir / "matches.png",
-                        hide_fig=True,
-                        point_size=5,
-                    )
-                else:
-                    self.viz_matches_mpl(
-                        image0,
-                        image1,
-                        self._mkpts0,
-                        self._mkpts1,
-                        hide_fig=False,
-                    )
+        if do_viz is True:
+            self.viz_matches(
+                image0,
+                image1,
+                self._mkpts0,
+                self._mkpts1,
+                str(self._save_dir / "matches.jpg"),
+                fast_viz=fast_viz,
+                hide_matching_track=hide_matching_track,
+            )
+            # else:
+            #     if self._save_dir is not None:
+            #         self.viz_matches_mpl(
+            #             image0,
+            #             image1,
+            #             self._mkpts0,
+            #             self._mkpts1,
+            #             self._save_dir / "matches.jpg",
+            #             hide_fig=True,
+            #             point_size=5,
+            #         )
+            #     else:
+            #         self.viz_matches_mpl(
+            #             image0,
+            #             image1,
+            #             self._mkpts0,
+            #             self._mkpts1,
+            #             hide_fig=False,
+            #         )
+
+            # if fast_viz:
+            #     assert (
+            #         self._save_dir is not None
+            #     ), "save_dir must be specified for fast_viz"
+            #     if hide_matching_track:
+            #         line_thickness = -1
+            #     else:
+            #         line_thickness = 1
+
+            #     self.viz_matches_cv2(
+            #         image0,
+            #         image1,
+            #         self._mkpts0,
+            #         self._mkpts1,
+            #         str(self._save_dir / "matches.jpg"),
+            #         line_thickness=line_thickness,
+            #         autoresize=True,
+            #         max_long_edge=2000,
+            #         jpg_quality=95,
+            #     )
+            # else:
+            #     if self._save_dir is not None:
+            #         self.viz_matches_mpl(
+            #             image0,
+            #             image1,
+            #             self._mkpts0,
+            #             self._mkpts1,
+            #             self._save_dir / "matches.jpg",
+            #             hide_fig=True,
+            #             point_size=5,
+            #         )
+            #     else:
+            #         self.viz_matches_mpl(
+            #             image0,
+            #             image1,
+            #             self._mkpts0,
+            #             self._mkpts1,
+            #             hide_fig=False,
+            #         )
         if self._save_dir is not None:
             self.save_mkpts_as_txt(self._save_dir)
 
@@ -282,7 +462,6 @@ class ImageMatcherBase:
         self,
         image0: np.ndarray,
         image1: np.ndarray,
-        tile_selection: TileSelection = TileSelection.PRESELECTION,
         **config,
     ) -> Tuple[FeaturesBase, FeaturesBase, np.ndarray, np.ndarray]:
         """
@@ -291,7 +470,6 @@ class ImageMatcherBase:
         Args:
             image0: The first input image as a NumPy array.
             image1: The second input image as a NumPy array.
-            tile_selection: The method for selecting tile pairs to match (default: TileSelection.PRESELECTION).
             **config: Additional keyword arguments for customization.
 
         Returns:
@@ -305,10 +483,9 @@ class ImageMatcherBase:
             AssertionError: If image0 or image1 is not a NumPy array.
 
         """
-        assert isinstance(image0, np.ndarray), "image0 must be a NumPy array"
-        assert isinstance(image1, np.ndarray), "image1 must be a NumPy array"
 
         # Get config
+        tile_selection = config.get("tile_selection", TileSelection.PRESELECTION)
         grid = config.get("grid", [1, 1])
         overlap = config.get("overlap", 0)
         origin = config.get("origin", [0, 0])
@@ -386,14 +563,43 @@ class ImageMatcherBase:
             save_dir = Path(save_dir)
             save_dir.mkdir(parents=True, exist_ok=True)
             if do_viz_tiles is True:
-                self.viz_matches_mpl(
+                out_img_path = str(save_dir / f"matches_tile_{tidx0}-{tidx1}.jpg")
+                self.viz_matches(
                     tile0,
                     tile1,
                     mkpts0,
                     mkpts1,
-                    save_dir / f"matches_tile_{tidx0}-{tidx1}.png",
-                    hide_fig=True,
+                    out_img_path,
+                    fast_viz=True,
+                    hide_matching_track=True,
+                    autoresize=True,
+                    max_long_edge=1200,
                 )
+                # try:
+                #     hide_matching_track = self._config.get("hide_matching_track", False)
+                #     if hide_matching_track:
+                #         line_thickness = -1
+                #     else:
+                #         line_thickness = 1
+                #     self.viz_matches_cv2(
+                #         tile0,
+                #         tile1,
+                #         mkpts0,
+                #         mkpts1,
+                #         str(out_img_path),
+                #         line_thickness=line_thickness,
+                #         autoresize=True,
+                #         max_long_edge=1200,
+                #     )
+                # except Exception:
+                #     self.viz_matches_mpl(
+                #         tile0,
+                #         tile1,
+                #         mkpts0,
+                #         mkpts1,
+                #         out_img_path,
+                #         hide_fig=True,
+                #     )
 
         logger.info("Restoring full image coordinates of matches...")
 
@@ -505,15 +711,39 @@ class ImageMatcherBase:
             vld = mtc > -1
             kp0 = f0.keypoints[vld]
             kp1 = f1.keypoints[mtc[vld]]
-            if self._do_viz is True:
-                self.viz_matches_mpl(
+            if self._config.get("do_viz", False) is True:
+                self.viz_matches(
                     i0,
                     i1,
                     kp0,
                     kp1,
-                    self._save_dir / "tile_preselection.png",
-                    hide_fig=True,
+                    str(self._save_dir / "tile_preselection.jpg"),
+                    fast_viz=True,
+                    hide_matching_track=True,
+                    autoresize=True,
+                    max_long_edge=1200,
                 )
+
+                # try:
+                #     self.viz_matches_cv2(
+                #         i0,
+                #         i1,
+                #         kp0,
+                #         kp1,
+                #         str(self._save_dir / "tile_preselection.jpg"),
+                #         line_thickness=-1,
+                #         autoresize=True,
+                #         max_long_edge=1200,
+                #     )
+                # except Exception:
+                #     self.viz_matches_mpl(
+                #         i0,
+                #         i1,
+                #         kp0,
+                #         kp1,
+                #         self._save_dir / "tile_preselection.jpg",
+                #         hide_fig=True,
+                #     )
 
             for _ in range(n_down):
                 kp0 *= 2
@@ -548,7 +778,7 @@ class ImageMatcherBase:
             # # axes[1].get_yaxis().set_visible(False)
             # fig.tight_layout()
             # plt.show()
-            # fig.savefig("preselection.png")
+            # fig.savefig("preselection.jpg")
             # plt.close()
 
         return tile_pairs
@@ -670,109 +900,210 @@ class ImageMatcherBase:
         if self._mconf is not None:
             self._mconf = self._mconf[inlMask]
 
-    def viz_matches_mpl(
+    def viz_matches(
         self,
         image0: np.ndarray,
         image1: np.ndarray,
         kpts0: np.ndarray,
         kpts1: np.ndarray,
         save_path: str = None,
-        hide_fig: bool = True,
+        fast_viz: bool = True,
+        interactive_viz: bool = False,
         **config,
     ) -> None:
-        if hide_fig:
-            matplotlib = importlib.import_module("matplotlib")
-            matplotlib.use("Agg")  # Use the Agg backend for rendering
+        if not interactive_viz:
+            assert (
+                save_path is not None
+            ), "save_dir must be specified if interactive_viz is False"
 
-        # Get config
-        colors = config.get("c", config.get("color", ["r", "r"]))
-        if isinstance(colors, str):
-            colors = [colors, colors]
-        s = config.get("s", 2)
-        figsize = config.get("figsize", (20, 8))
+        # Check input parameters
+        if fast_viz:
+            if interactive_viz:
+                logger.warning("interactive_viz is ignored if fast_viz is True")
+            assert (
+                save_path is not None
+            ), "save_dir must be specified if fast_viz is True"
 
-        fig, ax = plt.subplots(1, 2, figsize=figsize)
-        ax[0].imshow(cv2.cvtColor(image0, cv2.COLOR_BGR2RGB))
-        ax[0].scatter(kpts0[:, 0], kpts0[:, 1], s=s, c=colors[0])
-        ax[0].axis("equal")
-        ax[1].imshow(cv2.cvtColor(image1, cv2.COLOR_BGR2RGB))
-        ax[1].scatter(kpts1[:, 0], kpts1[:, 1], s=s, c=colors[1])
-        ax[1].axis("equal")
-        fig.tight_layout()
-        if save_path is not None:
-            fig.savefig(save_path)
-        if hide_fig is False:
-            plt.show()
+        # Make visualization with OpenCV or Matplotlib
+        if fast_viz:
+            # Get config for OpenCV visualization
+            autoresize = config.get("autoresize", True)
+            max_long_edge = config.get("max_long_edge", 1200)
+            jpg_quality = config.get("jpg_quality", 80)
+            hide_matching_track = config.get("hide_matching_track", False)
+            if hide_matching_track:
+                line_thickness = -1
+            else:
+                line_thickness = 1
+
+            viz_matches_cv2(
+                image0,
+                image1,
+                kpts0,
+                kpts1,
+                str(save_path),
+                line_thickness=line_thickness,
+                autoresize=autoresize,
+                max_long_edge=max_long_edge,
+                jpg_quality=jpg_quality,
+            )
         else:
-            plt.close(fig)
+            # Get config for Matplotlib visualization
+            # colors = config.get("c", config.get("color", ["r", "r"]))
+            # if isinstance(colors, str):
+            #     colors = [colors, colors]
+            # config.get("s", 2)
+            # config.get("figsize", (20, 8))
 
-    def viz_matches_cv2(
-        self,
-        image0: np.ndarray,
-        image1: np.ndarray,
-        pts0: np.ndarray,
-        pts1: np.ndarray,
-        save_path: str = None,
-        pts_col: Tuple[int] = (0, 0, 255),
-        point_size: int = 2,
-        line_col: Tuple[int] = (0, 255, 0),
-        line_thickness: int = 1,
-        margin: int = 10,
-    ) -> np.ndarray:
-        """Plot matching points between two images using OpenCV.
+            interactive_viz = config.get("interactive_viz", False)
+            hide_fig = not interactive_viz
+            if interactive_viz:
+                viz_matches_mpl(
+                    image0,
+                    image1,
+                    kpts0,
+                    kpts1,
+                    hide_fig=hide_fig,
+                    config=config,
+                )
+            else:
+                viz_matches_mpl(
+                    image0,
+                    image1,
+                    kpts0,
+                    kpts1,
+                    save_path,
+                    hide_fig=hide_fig,
+                    point_size=5,
+                    config=config,
+                )
 
-        Args:
-            image0: The first image.
-            image1: The second image.
-            pts0: List of 2D points in the first image.
-            pts1: List of 2D points in the second image.
-            pts_col: RGB color of the points.
-            point_size: Size of the circles representing the points.
-            line_col: RGB color of the matching lines.
-            line_thickness: Thickness of the lines connecting the points.
-            path: Path to save the output image.
-            margin: Margin between the two images in the output.
+    # def viz_matches_mpl(
+    #     self,
+    #     image0: np.ndarray,
+    #     image1: np.ndarray,
+    #     kpts0: np.ndarray,
+    #     kpts1: np.ndarray,
+    #     save_path: str = None,
+    #     hide_fig: bool = True,
+    #     **config,
+    # ) -> None:
+    #     if hide_fig:
+    #         matplotlib = importlib.import_module("matplotlib")
+    #         matplotlib.use("Agg")  # Use the Agg backend for rendering
 
-        Returns:
-            np.ndarrya: The output image.
-        """
-        if image0.ndim > 2:
-            image0 = cv2.cvtColor(image0, cv2.COLOR_BGR2GRAY)
-        if image1.ndim > 2:
-            image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
-        H0, W0 = image0.shape
-        H1, W1 = image1.shape
-        H, W = max(H0, H1), W0 + W1 + margin
+    #     # Get config
+    #     colors = config.get("c", config.get("color", ["r", "r"]))
+    #     if isinstance(colors, str):
+    #         colors = [colors, colors]
+    #     s = config.get("s", 2)
+    #     figsize = config.get("figsize", (20, 8))
 
-        out = 255 * np.ones((H, W), np.uint8)
-        out[:H0, :W0] = image0
-        out[:H1, W0 + margin :] = image1
-        out = np.stack([out] * 3, -1)
+    #     fig, ax = plt.subplots(1, 2, figsize=figsize)
+    #     ax[0].imshow(cv2.cvtColor(image0, cv2.COLOR_BGR2RGB))
+    #     ax[0].scatter(kpts0[:, 0], kpts0[:, 1], s=s, c=colors[0])
+    #     ax[0].axis("equal")
+    #     ax[1].imshow(cv2.cvtColor(image1, cv2.COLOR_BGR2RGB))
+    #     ax[1].scatter(kpts1[:, 0], kpts1[:, 1], s=s, c=colors[1])
+    #     ax[1].axis("equal")
+    #     fig.tight_layout()
+    #     if save_path is not None:
+    #         fig.savefig(save_path)
+    #     if hide_fig is False:
+    #         plt.show()
+    #     else:
+    #         plt.close(fig)
 
-        mkpts0, mkpts1 = np.round(pts0).astype(int), np.round(pts1).astype(int)
-        for (x0, y0), (x1, y1) in zip(mkpts0, mkpts1):
-            cv2.line(
-                out,
-                (x0, y0),
-                (x1 + margin + W0, y1),
-                color=line_col,
-                thickness=line_thickness,
-                lineType=cv2.LINE_AA,
-            )
-            # display line end-points as circles
-            cv2.circle(out, (x0, y0), point_size, pts_col, -1, lineType=cv2.LINE_AA)
-            cv2.circle(
-                out,
-                (x1 + margin + W0, y1),
-                point_size,
-                pts_col,
-                -1,
-                lineType=cv2.LINE_AA,
-            )
-        if save_path is not None:
-            cv2.imwrite(str(save_path), out)
+    # def viz_matches_cv2(
+    #     self,
+    #     image0: np.ndarray,
+    #     image1: np.ndarray,
+    #     pts0: np.ndarray,
+    #     pts1: np.ndarray,
+    #     save_path: str = None,
+    #     pts_col: Tuple[int] = (0, 0, 255),
+    #     point_size: int = 1,
+    #     line_col: Tuple[int] = (0, 255, 0),
+    #     line_thickness: int = 1,
+    #     margin: int = 10,
+    #     autoresize: bool = True,
+    #     max_long_edge: int = 1200,
+    #     jpg_quality: int = 80,
+    # ) -> np.ndarray:
+    #     """Plot matching points between two images using OpenCV.
 
-        return out
+    #     Args:
+    #         image0: The first image.
+    #         image1: The second image.
+    #         pts0: List of 2D points in the first image.
+    #         pts1: List of 2D points in the second image.
+    #         pts_col: RGB color of the points.
+    #         point_size: Size of the circles representing the points.
+    #         line_col: RGB color of the matching lines.
+    #         line_thickness: Thickness of the lines connecting the points.
+    #         path: Path to save the output image.
+    #         margin: Margin between the two images in the output.
+
+    #     Returns:
+    #         np.ndarrya: The output image.
+    #     """
+    #     if image0.ndim > 2:
+    #         image0 = cv2.cvtColor(image0, cv2.COLOR_BGR2GRAY)
+    #     if image1.ndim > 2:
+    #         image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
+
+    #     if autoresize:
+    #         H0, W0 = image0.shape[:2]
+    #         H1, W1 = image1.shape[:2]
+    #         max_size = max(H0, W0, H1, W1)
+    #         scale_factor = max_long_edge / max_size
+    #         new_W0, new_H0 = int(W0 * scale_factor), int(H0 * scale_factor)
+    #         new_W1, new_H1 = int(W1 * scale_factor), int(H1 * scale_factor)
+
+    #         image0 = cv2.resize(image0, (new_W0, new_H0))
+    #         image1 = cv2.resize(image1, (new_W1, new_H1))
+
+    #         # Scale the keypoints accordingly
+    #         pts0 = (pts0 * scale_factor).astype(int)
+    #         pts1 = (pts1 * scale_factor).astype(int)
+
+    #     H0, W0 = image0.shape
+    #     H1, W1 = image1.shape
+    #     H, W = max(H0, H1), W0 + W1 + margin
+
+    #     out = 255 * np.ones((H, W), np.uint8)
+    #     out[:H0, :W0] = image0
+    #     out[:H1, W0 + margin :] = image1
+    #     out = np.stack([out] * 3, -1)
+
+    #     mkpts0, mkpts1 = np.round(pts0).astype(int), np.round(pts1).astype(int)
+    #     for (x0, y0), (x1, y1) in zip(mkpts0, mkpts1):
+    #         if line_thickness > -1:
+    #             # draw lines between matching keypoints
+    #             cv2.line(
+    #                 out,
+    #                 (x0, y0),
+    #                 (x1 + margin + W0, y1),
+    #                 color=line_col,
+    #                 thickness=line_thickness,
+    #                 lineType=cv2.LINE_AA,
+    #             )
+    #         # display line end-points as circles
+    #         cv2.circle(out, (x0, y0), point_size, pts_col, -1, lineType=cv2.LINE_AA)
+    #         cv2.circle(
+    #             out,
+    #             (x1 + margin + W0, y1),
+    #             point_size,
+    #             pts_col,
+    #             -1,
+    #             lineType=cv2.LINE_AA,
+    #         )
+    #     if save_path is not None:
+    #         cv2.imwrite(
+    #             str(save_path), out, [cv2.IMWRITE_JPEG_QUALITY, int(jpg_quality)]
+    #         )
+
+    #     return out
 
     def save_mkpts_as_txt(
         self,
@@ -783,12 +1114,14 @@ class ImageMatcherBase:
         """Save keypoints in a .txt file"""
         path = Path(savedir)
         path.mkdir(parents=True, exist_ok=True)
+
         np.savetxt(
             path / "keypoints_0.txt",
             self.mkpts0,
             delimiter=delimiter,
             newline="\n",
             header=header,
+            fmt="%.2f",  # Format to two decimal places
         )
         np.savetxt(
             path / "keypoints_1.txt",
@@ -796,4 +1129,5 @@ class ImageMatcherBase:
             delimiter=delimiter,
             newline="\n",
             header=header,
+            fmt="%.2f",  # Format to two decimal places
         )

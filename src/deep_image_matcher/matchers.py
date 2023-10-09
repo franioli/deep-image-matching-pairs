@@ -17,6 +17,7 @@ from .consts import (
 )
 from .core import FeaturesBase, ImageMatcherBase, check_dict_keys
 from .tiling import Tiler
+from .thirdparty.LightGlue.lightglue import LightGlue, SuperPoint
 from .thirdparty.SuperGlue.models.matching import Matching
 from .thirdparty.SuperGlue.models.utils import make_matching_plot
 
@@ -77,9 +78,7 @@ class LightGlueMatcher(ImageMatcherBase):
             Tuple[FeaturesBase, FeaturesBase, np.ndarray]: a tuple containing the features of the first image, the features of the second image, and the matches between them
         """
 
-        from .thirdparty.LightGlue.lightglue import LightGlue, SuperPoint
-
-        max_keypoints = config.get("max_keypoints", 10240)
+        max_keypoints = config.get("max_keypoints", 4096)
         resize = config.get("resize", None)
 
         image0_ = self._frame2tensor(image0, self._device)
@@ -131,11 +130,11 @@ class LightGlueMatcher(ImageMatcherBase):
         matches0 = matches01["matches0"]
         mconf = matches01["scores"]
 
-        # For debugging
-        def print_shapes_in_dict(dic: dict):
-            for k, v in dic.items():
-                shape = v.shape if isinstance(v, np.ndarray) else None
-                print(f"{k} shape: {shape}")
+        # # For debugging
+        # def print_shapes_in_dict(dic: dict):
+        #     for k, v in dic.items():
+        #         shape = v.shape if isinstance(v, np.ndarray) else None
+        #         print(f"{k} shape: {shape}")
 
         # def print_features_shape(features: FeaturesBase):
         #     print(f"keypoints: {features.keypoints.shape}")
