@@ -77,16 +77,6 @@ class ImageMatcherBase:
         self._scores1 = None  # scores of mkpts on image 1
         self._mconf = None  # match confidence (i.e., scores0 of the valid matches)
 
-    def reset(self):
-        """Reset the matcher by clearing the features and matches"""
-        self._mkpts0 = None
-        self._mkpts1 = None
-        self._descriptors0 = None
-        self._descriptors1 = None
-        self._scores0 = None
-        self._scores1 = None
-        self._mconf = None
-
     @property
     def device(self):
         return self._device
@@ -118,6 +108,16 @@ class ImageMatcherBase:
     @property
     def mconf(self):
         return self._mconf
+
+    def reset(self):
+        """Reset the matcher by clearing the features and matches"""
+        self._mkpts0 = None
+        self._mkpts1 = None
+        self._descriptors0 = None
+        self._descriptors1 = None
+        self._scores0 = None
+        self._scores1 = None
+        self._mconf = None
 
     @timeit
     def match(
@@ -171,7 +171,7 @@ class ImageMatcherBase:
         # Perform matching (on tiles or full images)
         if tile_selection == TileSelection.NONE:
             logger.info("Matching full images...")
-            features0, features1, matches0, mconf = self._match_images(
+            features0, features1, matches0, mconf = self._match_pairs(
                 image0_, image1_, **config
             )
 
@@ -182,16 +182,18 @@ class ImageMatcherBase:
             )
 
         # Retrieve original image coordinates if matching was performed on up/down-sampled images
-        features0, features1 = self._resize_features(quality, features0, features1)
+        self._features0, self._features1 = self._resize_features(
+            quality, features0, features1
+        )
 
         # Store features as class members
         try:
-            self._store_features(features0, features1, matches0)
+            self._store_matched_features(self._features0, self._features1, matches0)
             self._mconf = mconf
         except Exception as e:
             logger.error(
                 f"""Error storing matches: {e}. 
-                Implement your own _store_features() method if the
+                Implement your own _store_matched_features() method if the
                 output of your matcher is different from FeaturesBase."""
             )
         self.timer.update("matching")
@@ -250,32 +252,17 @@ class ImageMatcherBase:
 
         return True
 
-    def _frame2tensor(self, image: np.ndarray, device: str = "cpu") -> torch.Tensor:
-        """Normalize the image tensor and add batch dimension."""
-        # if image.ndim == 3:
-        #     image = image.transpose((2, 0, 1))  # HxWxC to CxHxW
-        # elif image.ndim == 2:
-        #     image = image[None]  # add channel axis
-        # else:
-        #     raise ValueError(f'Not an image: {image.shape}')
-        # return torch.tensor(image / 255., dtype=torch.float).to(device)
-
-        device = torch.device(self._device if torch.cuda.is_available() else "cpu")
-        return torch.tensor(image / 255.0, dtype=torch.float)[None, None].to(device)
-
-    def _match_images(
+    def _match_pairs(
         self,
         image0: np.ndarray,
         image1: np.ndarray,
         **config,
     ) -> Tuple[FeaturesBase, FeaturesBase, np.ndarray, np.ndarray]:
         """Matches keypoints and descriptors in two given images (no
-        matter if they are tiles or full-res images) using the
-        SuperGlue algorithm.
+        matter if they are tiles or full-res images).
 
         This method takes in two images as Numpy arrays, and returns
-        the matches between keypoints
-        and descriptors in those images using the SuperGlue algorithm.
+        the matches between keypoints and descriptors in those images.
 
         Args:
             image0 (np.ndarray): the first image to match, as Numpy array
@@ -362,7 +349,7 @@ class ImageMatcherBase:
             tile0 = self._tiler.extract_patch(image0, lim0)
             tile1 = self._tiler.extract_patch(image1, lim1)
 
-            features0, features1, matches0, conf = self._match_images(
+            features0, features1, matches0, conf = self._match_pairs(
                 tile0, tile1, **config
             )
 
@@ -441,6 +428,19 @@ class ImageMatcherBase:
 
         return features0, features1, matches0, mconf
 
+    def _frame2tensor(self, image: np.ndarray, device: str = "cpu") -> torch.Tensor:
+        """Normalize the image tensor and add batch dimension."""
+        # if image.ndim == 3:
+        #     image = image.transpose((2, 0, 1))  # HxWxC to CxHxW
+        # elif image.ndim == 2:
+        #     image = image[None]  # add channel axis
+        # else:
+        #     raise ValueError(f'Not an image: {image.shape}')
+        # return torch.tensor(image / 255., dtype=torch.float).to(device)
+
+        device = torch.device(self._device if torch.cuda.is_available() else "cpu")
+        return torch.tensor(image / 255.0, dtype=torch.float)[None, None].to(device)
+
     def _tile_selection(
         self,
         image0: np.ndarray,
@@ -501,7 +501,7 @@ class ImageMatcherBase:
             for _ in range(n_down):
                 i0 = cv2.pyrDown(i0)
                 i1 = cv2.pyrDown(i1)
-            f0, f1, mtc, _ = self._match_images(i0, i1, max_keypoints=4096)
+            f0, f1, mtc, _ = self._match_pairs(i0, i1, max_keypoints=4096)
             vld = mtc > -1
             kp0 = f0.keypoints[vld]
             kp1 = f1.keypoints[mtc[vld]]
@@ -611,7 +611,7 @@ class ImageMatcherBase:
 
         return features0, features1
 
-    def _store_features(
+    def _store_matched_features(
         self,
         features0: FeaturesBase,
         features1: FeaturesBase,
@@ -639,7 +639,7 @@ class ImageMatcherBase:
                 logger.warning("Matches already stored. Overwrite them")
 
         valid = matches0 > -1
-        self._valid = valid
+        # self._valid = valid
         idx1 = matches0[valid]
         self._mkpts0 = features0.keypoints[valid]
         self._mkpts1 = features1.keypoints[idx1]
@@ -661,13 +661,11 @@ class ImageMatcherBase:
         """
         self._mkpts0 = self._mkpts0[inlMask, :]
         self._mkpts1 = self._mkpts1[inlMask, :]
-        if self._descriptors0 is not None:
+        if self._descriptors0 is not None and self._descriptors1 is not None:
             self._descriptors0 = self._descriptors0[:, inlMask]
-        if self._descriptors1 is not None:
             self._descriptors1 = self._descriptors1[:, inlMask]
-        if self._scores0 is not None:
+        if self._scores0 is not None and self._scores1 is not None:
             self._scores0 = self._scores0[inlMask]
-        if self._scores1 is not None:
             self._scores1 = self._scores1[inlMask]
         if self._mconf is not None:
             self._mconf = self._mconf[inlMask]

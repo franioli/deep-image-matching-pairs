@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # NOTE: the ImageMatcherBase class should be used as a base class for all the image matchers.
 # The ImageMatcherBase class should contain all the common methods and attributes for all the matchers (tile suddivision, image downsampling/upsampling), geometric verification etc.
-# The specific matchers MUST contain at least the `_match_images` method, which takes in two images as Numpy arrays, and returns the matches between keypoints and descriptors in those images. It doesn not care if the images are tiles or full-res images, as the tiling is handled by the ImageMatcherBase class that calls the `_match_images` method for each tile pair or for the full images depending on the tile selection method.
+# The specific matchers MUST contain at least the `_match_pairs` method, which takes in two images as Numpy arrays, and returns the matches between keypoints and descriptors in those images. It doesn not care if the images are tiles or full-res images, as the tiling is handled by the ImageMatcherBase class that calls the `_match_pairs` method for each tile pair or for the full images depending on the tile selection method.
 
 # TODO: divide the matcher in two classes: one for the feature extractor and one for the matcher.
 # TODO: allows the user to provide the features (keypoints, descriptors and scores) as input to match method when using SuperGlue/LightGlue (e.g., for tracking features in a new image of a sequence)
@@ -58,7 +58,7 @@ class LightGlueMatcher(ImageMatcherBase):
             for k, v in data.items()
         }
 
-    def _match_images(
+    def _match_pairs(
         self,
         image0: np.ndarray,
         image1: np.ndarray,
@@ -131,11 +131,11 @@ class LightGlueMatcher(ImageMatcherBase):
         matches0 = matches01["matches0"]
         mconf = matches01["scores"]
 
-        # # For debugging
-        # def print_shapes_in_dict(dic: dict):
-        #     for k, v in dic.items():
-        #         shape = v.shape if isinstance(v, np.ndarray) else None
-        #         print(f"{k} shape: {shape}")
+        # For debugging
+        def print_shapes_in_dict(dic: dict):
+            for k, v in dic.items():
+                shape = v.shape if isinstance(v, np.ndarray) else None
+                print(f"{k} shape: {shape}")
 
         # def print_features_shape(features: FeaturesBase):
         #     print(f"keypoints: {features.keypoints.shape}")
@@ -143,44 +143,6 @@ class LightGlueMatcher(ImageMatcherBase):
         #     print(f"scores: {features.scores.shape}")
 
         return features0, features1, matches0, mconf
-
-    def _store_features(
-        self,
-        features0: FeaturesBase,
-        features1: FeaturesBase,
-        matches0: np.ndarray,
-        force_overwrite: bool = True,
-    ) -> bool:
-        """Stores keypoints, descriptors and scores of the matches in the object's members."""
-
-        assert isinstance(
-            features0, FeaturesBase
-        ), "features0 must be a FeaturesBase object"
-        assert isinstance(
-            features1, FeaturesBase
-        ), "features1 must be a FeaturesBase object"
-        assert hasattr(features0, "keypoints"), "No keypoints found in features0"
-        assert hasattr(features1, "keypoints"), "No keypoints found in features1"
-
-        if self._mkpts0 is not None and self._mkpts1 is not None:
-            if force_overwrite is False:
-                logger.warning(
-                    "Matches already stored. Not overwriting them. Use force_overwrite=True to force overwrite them."
-                )
-                return False
-            else:
-                logger.warning("Matches already stored. Overwrite them")
-
-        self._mkpts0 = features0.keypoints
-        self._mkpts1 = features1.keypoints
-        if features0.descriptors is not None:
-            self._descriptors0 = features0.descriptors
-            self._descriptors1 = features1.descriptors
-        if features0.scores is not None:
-            self._scores0 = features0.scores
-            self._scores1 = features1.scores
-
-        return True
 
 
 class SuperGlueMatcher(ImageMatcherBase):
@@ -247,7 +209,7 @@ class SuperGlueMatcher(ImageMatcherBase):
             "force_cpu": opt["force_cpu"],
         }
 
-    def _match_images(
+    def _match_pairs(
         self,
         image0: np.ndarray,
         image1: np.ndarray,
@@ -390,7 +352,7 @@ class LOFTRMatcher(ImageMatcherBase):
             image = K.color.rgb_to_grayscale(image)
         return image
 
-    def _match_images(
+    def _match_pairs(
         self,
         image0: np.ndarray,
         image1: np.ndarray,
