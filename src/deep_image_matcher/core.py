@@ -162,7 +162,7 @@ def viz_matches_cv2(
     return out
 
 
-class ImageMatcherBase:
+class MatcherBase:
     def __init__(self, **config) -> None:
         """
         Base class for matchers. It defines the basic interface for matchers and basic functionalities that are shared among all matchers, in particular the `match` method. It must be subclassed to implement a new matcher.

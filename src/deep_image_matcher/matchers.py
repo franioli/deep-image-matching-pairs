@@ -15,7 +15,7 @@ from .consts import (
     Quality,
     TileSelection,
 )
-from .core import FeaturesBase, ImageMatcherBase, check_dict_keys
+from .core import FeaturesBase, MatcherBase, check_dict_keys
 from .tiling import Tiler
 from .thirdparty.LightGlue.lightglue import LightGlue, SuperPoint
 from .thirdparty.SuperGlue.models.matching import Matching
@@ -23,18 +23,18 @@ from .thirdparty.SuperGlue.models.utils import make_matching_plot
 
 logger = logging.getLogger(__name__)
 
-# NOTE: the ImageMatcherBase class should be used as a base class for all the image matchers.
-# The ImageMatcherBase class should contain all the common methods and attributes for all the matchers (tile suddivision, image downsampling/upsampling), geometric verification etc.
-# The specific matchers MUST contain at least the `_match_pairs` method, which takes in two images as Numpy arrays, and returns the matches between keypoints and descriptors in those images. It doesn not care if the images are tiles or full-res images, as the tiling is handled by the ImageMatcherBase class that calls the `_match_pairs` method for each tile pair or for the full images depending on the tile selection method.
+# NOTE: the MatcherBase class should be used as a base class for all the image matchers.
+# The MatcherBase class should contain all the common methods and attributes for all the matchers (tile suddivision, image downsampling/upsampling), geometric verification etc.
+# The specific matchers MUST contain at least the `_match_pairs` method, which takes in two images as Numpy arrays, and returns the matches between keypoints and descriptors in those images. It doesn not care if the images are tiles or full-res images, as the tiling is handled by the MatcherBase class that calls the `_match_pairs` method for each tile pair or for the full images depending on the tile selection method.
 
 # TODO: divide the matching in two steps: one for the feature extractor and one for the matcher.
 # TODO: allows the user to provide the features (keypoints, descriptors and scores) as input to match method when using SuperGlue/LightGlue (e.g., for tracking features in a new image of a sequence)
-# TODO: move all the configuration parameters to the __init__ method of the ImageMatcherBase class. The match method should only take the images as input (and optionally the already extracted features).
+# TODO: move all the configuration parameters to the __init__ method of the MatcherBase class. The match method should only take the images as input (and optionally the already extracted features).
 # TODO: add integration with KORNIA library for using all the extractors and mathers.
 # TODO: add visualization functions for the matches (take the functions from the visualization module of ICEpy4d). Currentely, the visualization methods may not work!
 
 
-class LightGlueMatcher(ImageMatcherBase):
+class LightGlueMatcher(MatcherBase):
     def __init__(self, **config) -> None:
         """Initializes a LightGlueMatcher with Kornia"""
 
@@ -144,7 +144,7 @@ class LightGlueMatcher(ImageMatcherBase):
         return features0, features1, matches0, mconf
 
 
-class SuperGlueMatcher(ImageMatcherBase):
+class SuperGlueMatcher(MatcherBase):
     def __init__(self, opt: dict) -> None:
         """Initializes a SuperGlueMatcher object with the given options dictionary.
 
@@ -321,7 +321,7 @@ class SuperGlueMatcher(ImageMatcherBase):
         )
 
 
-class LOFTRMatcher(ImageMatcherBase):
+class LOFTRMatcher(MatcherBase):
     def __init__(self, **config) -> None:
         """Initializes a LOFTRMatcher with Kornia object with the given options dictionary."""
 
