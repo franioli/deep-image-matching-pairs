@@ -1,0 +1,63 @@
+import numpy as np
+import pytest
+from deep_image_matcher import GeometricVerification
+
+
+# Define fixture for sample data
+@pytest.fixture
+def sample_data():
+    mkpts0 = np.array([[0, 0], [1, 1], [2, 2], [3, 3]])
+    mkpts1 = np.array([[0, 0], [1, 1], [2, 2], [3, 3]])
+    return mkpts0, mkpts1
+
+
+# Test case for successful execution of geometric_verification with PYDEGENSAC method
+def test_geometric_verification_pydegensac(sample_data):
+    mkpts0, mkpts1 = sample_data
+    F, inlMask = GeometricVerification(
+        mkpts0, mkpts1, method=GeometricVerification.PYDEGENSAC
+    )
+    assert F is not None
+    assert isinstance(inlMask, np.ndarray)
+
+
+# Test case for successful execution of geometric_verification with MAGSAC method
+def test_geometric_verification_magsac(sample_data):
+    mkpts0, mkpts1 = sample_data
+    F, inlMask = GeometricVerification(
+        mkpts0, mkpts1, method=GeometricVerification.MAGSAC
+    )
+    assert F is not None
+    assert isinstance(inlMask, np.ndarray)
+
+
+# Test case for insufficient matches
+def test_geometric_verification_insufficient_matches():
+    mkpts0 = np.array([[0, 0], [1, 1]])
+    mkpts1 = np.array([[0, 0], [1, 1]])
+    F, inlMask = geometric_verification(
+        mkpts0, mkpts1, method=GeometricVerification.PYDEGENSAC
+    )
+    assert F is None
+    assert (inlMask == np.array([True, True])).all()
+
+
+# Test case for invalid method
+def test_geometric_verification_invalid_method(sample_data):
+    mkpts0, mkpts1 = sample_data
+    with pytest.raises(AssertionError):
+        F, inlMask = geometric_verification(mkpts0, mkpts1, method="invalid_method")
+
+
+# Test case for empty input
+def test_geometric_verification_empty_input():
+    mkpts0, mkpts1 = np.array([]), np.array([])
+    F, inlMask = geometric_verification(
+        mkpts0, mkpts1, method=GeometricVerification.PYDEGENSAC
+    )
+    assert F is None
+    assert (inlMask == np.array([])).all()
+
+
+if __name__ == "__main__":
+    pytest.main()

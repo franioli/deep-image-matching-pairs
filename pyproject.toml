@@ -54,6 +54,6 @@ push = true
     'current_version = "{version}"', 
     'version = "{version}"'
 ]
-"src/impreproc/__init__.py" = [
+"src/deep_image_matcher/__init__.py" = [
     "{version}"
 ]

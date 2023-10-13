@@ -322,11 +322,11 @@ class SuperGlueMatcher(ImageMatcherBase):
 
 
 class LOFTRMatcher(ImageMatcherBase):
-    def __init__(self, opt: dict = {}) -> None:
+    def __init__(self, **config) -> None:
         """Initializes a LOFTRMatcher with Kornia object with the given options dictionary."""
 
-        opt = self._build_config(opt)
-        super().__init__(opt)
+        config = self._build_config(config)
+        super().__init__(**config)
 
         self.matcher = KF.LoFTR(pretrained="outdoor").to(self.device).eval()
 
@@ -483,12 +483,14 @@ class LOFTRMatcher(ImageMatcherBase):
             save_dir = Path(save_dir)
             save_dir.mkdir(parents=True, exist_ok=True)
             if do_viz_tiles is True:
-                self.viz_matches_mpl(
+                self.viz_matches(
                     tile0,
                     tile1,
                     mkpts0,
                     mkpts1,
                     save_dir / f"matches_tile_{tidx0}-{tidx1}.png",
+                    fast_viz=config.get("fast_viz", True),
+                    hide_matching_track=config.get("hide_matching_track", True),
                 )
 
         logger.info("Restoring full image coordinates of matches...")
