@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from deep_image_matcher import GeometricVerification
+from deep_image_matcher.geometric_verification import geometric_verification
 
 
 # Define fixture for sample data
@@ -14,7 +15,7 @@ def sample_data():
 # Test case for successful execution of geometric_verification with PYDEGENSAC method
 def test_geometric_verification_pydegensac(sample_data):
     mkpts0, mkpts1 = sample_data
-    F, inlMask = GeometricVerification(
+    F, inlMask = geometric_verification(
         mkpts0, mkpts1, method=GeometricVerification.PYDEGENSAC
     )
     assert F is not None
@@ -24,7 +25,7 @@ def test_geometric_verification_pydegensac(sample_data):
 # Test case for successful execution of geometric_verification with MAGSAC method
 def test_geometric_verification_magsac(sample_data):
     mkpts0, mkpts1 = sample_data
-    F, inlMask = GeometricVerification(
+    F, inlMask = geometric_verification(
         mkpts0, mkpts1, method=GeometricVerification.MAGSAC
     )
     assert F is not None
@@ -60,4 +61,4 @@ def test_geometric_verification_empty_input():
 
 
 if __name__ == "__main__":
-    pytest.main()
+    pytest.main([__file__])
