@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
-from deep_image_matcher import GeometricVerification
-from deep_image_matcher.geometric_verification import geometric_verification
+from deep_image_matching import GeometricVerification
+from deep_image_matching.geometric_verification import geometric_verification
 
 
 # Define fixture for sample data

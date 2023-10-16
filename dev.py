@@ -1,7 +1,7 @@
 import cv2
 
-from deep_image_matcher.logger import setup_logger
-from deep_image_matcher import (
+from deep_image_matching.logger import setup_logger
+from deep_image_matching import (
     LightGlueMatcher,
     Quality,
     TileSelection,

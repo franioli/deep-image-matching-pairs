@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from deep_image_matcher.tiling import Tiler
+from deep_image_matching.tiling import Tiler
 
 
 @pytest.fixture

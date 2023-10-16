@@ -3,7 +3,7 @@ requires      = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "deep_image_matcher"
+name = "deep_image_matching"
 version = "0.0.1"
 description = ""
 readme = "README.md"
@@ -54,6 +54,6 @@ push = true
     'current_version = "{version}"', 
     'version = "{version}"'
 ]
-"src/deep_image_matcher/__init__.py" = [
+"src/deep_image_matching/__init__.py" = [
     "{version}"
 ]
